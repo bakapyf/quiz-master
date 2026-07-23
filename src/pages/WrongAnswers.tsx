@@ -97,7 +97,7 @@ export default function WrongAnswers() {
     if (q.type === "multiple_choice") {
       const next = selectedAnswer.includes(letter) ? selectedAnswer.replace(letter, "") : (selectedAnswer + letter).split("").sort().join("");
       setSelectedAnswer(next);
-      if (!showResult && next) setShowResult(true);
+      // Don't show result until submit button clicked
     } else {
       setSelectedAnswer(letter);
       if (quickMode) { submitAndAdvance(letter); } else { setShowResult(true); }

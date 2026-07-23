@@ -53,8 +53,11 @@ export default function Quiz() {
     if (isMultiChoice) {
       const next = selectedAnswer.includes(letter) ? selectedAnswer.replace(letter, "") : (selectedAnswer + letter).split("").sort().join("");
       setSelectedAnswer(next);
-      if (!showResult && next) setShowResult(true);
+      // Multi-choice: don't show result until submit button is clicked
+    } else if (isShortAnswer) {
+      // Short answer: handled by textarea onChange
     } else {
+      // Single/True-False
       setSelectedAnswer(letter);
       if (quickMode) {
         submitAndAdvance(letter);
@@ -64,9 +67,14 @@ export default function Quiz() {
     }
   };
 
-  const handleMultiSubmit = () => {
+  const handleSubmit = () => {
     if (!selectedAnswer) return;
     setShowResult(true);
+    if (quickMode && !isMultiChoice && !isShortAnswer) {
+      // For single/true-false in quick mode, already advanced via handleOptionClick
+    }
+    // For multi/short in quick mode: submit shows result, user still clicks next manually
+    // (auto-advance would be too fast for these types)
   };
 
   const getDotColor = (q: any, idx: number) => {
@@ -169,14 +177,15 @@ export default function Quiz() {
         )}
 
         <div className="mt-6 flex gap-3">
-          {isMultiChoice && !showResult && (
-            <button onClick={handleMultiSubmit} disabled={!selectedAnswer} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors">提交答案</button>
+          {/* Multi-choice / Short answer: show submit button */}
+          {(isMultiChoice || isShortAnswer) && !showResult && (
+            <button onClick={handleSubmit} disabled={!selectedAnswer} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+              {isMultiChoice ? "确认选择" : "提交答案"}
+            </button>
           )}
+          {/* After showing result: show next */}
           {showResult && (
             <button onClick={handleNext} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">{quiz.isLastQuestion ? "完成答题" : "下一题"}</button>
-          )}
-          {isShortAnswer && !showResult && (
-            <button onClick={() => { if (selectedAnswer) setShowResult(true); }} disabled={!selectedAnswer} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors">提交答案</button>
           )}
         </div>
 
