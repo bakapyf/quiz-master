@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, Heart, Check, X, ChevronLeft, ChevronRight } from "lucide-react";
+import QuestionNav from "../components/QuestionNav";
 import { db } from "../lib/db";
 import { useQuiz } from "../hooks/useQuiz";
 import type { Question, QuestionBank } from "../types";
@@ -353,6 +354,19 @@ export default function Quiz() {
           ))}
         </div>
       </div>
+      <QuestionNav
+        total={quiz.state.questions.length}
+        currentIndex={quiz.state.currentIndex}
+        answers={quiz.state.answers}
+        questions={quiz.state.questions}
+        onJump={(idx) => {
+          if (showResult) {
+            quiz.answerQuestion(selectedAnswer);
+            setShowResult(false);
+          }
+          quiz.goToQuestion(idx);
+        }}
+      />
     </div>
   );
 }

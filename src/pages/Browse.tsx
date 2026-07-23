@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, Heart, ChevronLeft, ChevronRight } from "lucide-react";
+import QuestionNav from "../components/QuestionNav";
 import { db } from "../lib/db";
 import type { Question, QuestionBank } from "../types";
 
@@ -158,6 +159,13 @@ export default function Browse() {
           </button>
         </div>
       </div>
+      <QuestionNav
+        total={questions.length}
+        currentIndex={currentIndex}
+        answers={new Map()}
+        questions={questions}
+        onJump={(idx) => setCurrentIndex(idx)}
+      />
     </div>
   );
 }

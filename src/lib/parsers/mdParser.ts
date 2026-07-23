@@ -267,7 +267,7 @@ export function parseMarkdown(content: string): ParsedQuestion[] {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     const sectionMatch = line.match(
-      /^##\s*[一二三四五六七八九十]+[、.]?\s*(.+?)(?:（[^）]*）)?$/
+      /^##\s*(?:[一二三四五六七八九十]+[、.]?\s*)?(.+?)(?:（[^）]*）)?$/
     );
     if (sectionMatch) {
       if (i > currentStart) {
