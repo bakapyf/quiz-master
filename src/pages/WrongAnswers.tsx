@@ -82,8 +82,9 @@ export default function WrongAnswers() {
   };
 
   const removeFromWrong = async (questionId: number) => {
-    const records = await db.quizRecords.where({ questionId, isCorrect: false }).toArray();
-    for (const r of records) await db.quizRecords.delete(r.id!);
+    const records = await db.quizRecords.where({ questionId }).toArray();
+    const wrongRecords = records.filter((r) => !r.isCorrect);
+    for (const r of wrongRecords) await db.quizRecords.delete(r.id!);
     notifyDataChanged();
     setQuestions((p) => p.filter((_, i) => i !== currentIndex));
   };
