@@ -9,8 +9,10 @@ import {
   BookOpen,
   FileQuestion,
   Heart,
-  BarChart3,
   Trash2,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 import { db, notifyDataChanged } from "../lib/db";
 import type { QuestionBank, QuestionType } from "../types";
@@ -22,6 +24,8 @@ export default function BankDetail() {
   const [questions, setQuestions] = useState<any[]>([]);
   const [progress, setProgress] = useState({ answered: 0, correct: 0 });
   const [typeCounts, setTypeCounts] = useState<Record<string, number>>({});
+  const [editingName, setEditingName] = useState(false);
+  const [newName, setNewName] = useState("");
 
   useEffect(() => {
     if (!id) return;
@@ -61,6 +65,19 @@ export default function BankDetail() {
     navigate("/banks");
   };
 
+  const startRename = () => {
+    if (!bank) return;
+    setNewName(bank.name);
+    setEditingName(true);
+  };
+
+  const confirmRename = async () => {
+    if (!bank || !newName.trim()) return;
+    await db.questionBanks.update(bank.id!, { name: newName.trim() });
+    setBank({ ...bank, name: newName.trim() });
+    setEditingName(false);
+  };
+
   if (!bank) {
     return (
       <div className="text-center py-16 text-slate-500">加载中...</div>
@@ -76,12 +93,46 @@ export default function BankDetail() {
         >
           <ArrowLeft size={20} />
         </button>
-        <div className="flex-1">
-          <h2 className="text-2xl font-bold truncate">{bank.name}</h2>
+        <div className="flex-1 min-w-0">
+          {editingName ? (
+            <div className="flex items-center gap-2">
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                className="flex-1 px-2 py-1 text-lg font-bold border border-indigo-300 rounded bg-white dark:bg-slate-800 focus:outline-none focus:border-indigo-500"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") confirmRename();
+                  if (e.key === "Escape") setEditingName(false);
+                }}
+              />
+              <button
+                onClick={confirmRename}
+                className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"
+              >
+                <Check size={18} />
+              </button>
+              <button
+                onClick={() => setEditingName(false)}
+                className="p-1 text-slate-400 hover:bg-slate-100 rounded"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          ) : (
+            <h2 className="text-2xl font-bold truncate">{bank.name}</h2>
+          )}
           <p className="text-sm text-slate-500 dark:text-slate-400">
             {bank.questionCount} 题 · {bank.source}
           </p>
         </div>
+        <button
+          onClick={startRename}
+          className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors"
+          title="重命名"
+        >
+          <Pencil size={18} />
+        </button>
         <button
           onClick={deleteBank}
           className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"

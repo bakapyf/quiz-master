@@ -391,10 +391,11 @@ export default function Banks() {
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => startRename(bank)}
-                      className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors"
+                      className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors"
                       title="重命名"
                     >
-                      <Pencil size={16} />
+                      <Pencil size={14} />
+                      重命名
                     </button>
                     <button
                       onClick={() => navigate(`/banks/${bank.id}`)}
