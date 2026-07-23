@@ -1,101 +1,113 @@
 import { db, notifyDataChanged } from "./db";
+import type { Question, QuestionBank, QuizRecord, ExamSession, Favorite } from "../types";
 
 const SYNC_FILE = "quiz-master-data.json";
-const CORS_PROXY = "https://corsproxy.io/?url=";
-let usePublicProxy = false;
 
 declare global {
   interface Window {
-    showDirectoryPicker?: (options?: {
-      mode?: "read" | "readwrite";
-    }) => Promise<FileSystemDirectoryHandle>;
+    showDirectoryPicker?: (options?: { mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandle>;
   }
 }
 
-// ── WebDAV via proxy ─────────────────────────────────
+// ── GitHub Gist Sync ─────────────────────────────────
 
-async function proxyFetch(targetUrl: string, options: RequestInit = {}): Promise<Response> {
-  if (usePublicProxy) {
-    return fetch(CORS_PROXY + encodeURIComponent(targetUrl), options);
-  }
+const GIST_API = "https://api.github.com";
+
+interface GistConfig {
+  token: string;
+  gistId: string;
+}
+
+function getGistConfig(): GistConfig | null {
   try {
-    const res = await fetch(`/api/proxy?url=${encodeURIComponent(targetUrl)}`, options);
-    if (res.status === 404) throw new Error("proxy not found");
-    return res;
-  } catch {
-    usePublicProxy = true;
-    return fetch(CORS_PROXY + encodeURIComponent(targetUrl), options);
-  }
-}
-
-interface WebDAVConfig {
-  url: string;
-  username: string;
-  password: string;
-  serverName: string;
-}
-
-function getWebDAVConfig(): WebDAVConfig | null {
-  try {
-    return JSON.parse(localStorage.getItem("quiz-webdav-config") || "null");
+    return JSON.parse(localStorage.getItem("quiz-gist-config") || "null");
   } catch { return null; }
 }
 
-function authHeaders(cfg: WebDAVConfig): Record<string, string> {
-  return { Authorization: `Basic ${btoa(`${cfg.username}:${cfg.password}`)}` };
+async function gistFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const cfg = getGistConfig();
+  if (!cfg) throw new Error("未配置 GitHub");
+  return fetch(`${GIST_API}${path}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${cfg.token}`,
+      "Content-Type": "application/json",
+      Accept: "application/vnd.github.v3+json",
+      ...(options.headers || {}),
+    },
+  });
 }
 
-function davUrl(cfg: WebDAVConfig): string {
-  return `${cfg.url.replace(/\/+$/, "")}/${SYNC_FILE}`;
-}
-
-async function importFromWebDAV(): Promise<{ ok: boolean; message: string }> {
-  const cfg = getWebDAVConfig();
-  if (!cfg) return { ok: false, message: "未配置" };
+export async function saveGitHubConfig(token: string): Promise<{ ok: boolean; message: string }> {
+  // Verify token by trying to get the authenticated user
   try {
-    const res = await proxyFetch(davUrl(cfg), { headers: authHeaders(cfg) });
-    if (res.status === 404) return { ok: true, message: "云端暂无数据" };
-    if (!res.ok) return { ok: false, message: `HTTP ${res.status}` };
-    await mergeData(await res.text());
-    updateStatus({ lastSync: Date.now(), error: "" });
-    notifyDataChanged();
-    return { ok: true, message: "拉取成功" };
+    const userRes = await fetch(`${GIST_API}/user`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github.v3+json" },
+    });
+    if (!userRes.ok) return { ok: false, message: "Token 无效，请检查" };
+    const user = await userRes.json();
+    const userName = user.login;
+
+    // Create a gist
+    const createRes = await fetch(`${GIST_API}/gists`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/vnd.github.v3+json" },
+      body: JSON.stringify({
+        description: "Quiz Master 同步数据",
+        public: false,
+        files: { [SYNC_FILE]: { content: JSON.stringify({ version: 2, exportedAt: Date.now() }) } },
+      }),
+    });
+    if (!createRes.ok) return { ok: false, message: "Gist 创建失败" };
+    const gist = await createRes.json();
+    const gistId = gist.id;
+
+    localStorage.setItem("quiz-gist-config", JSON.stringify({ token, gistId }));
+    updateStatus({ enabled: true, mode: "gist", serverName: `GitHub (${userName})`, url: gist.html_url, error: "" });
+    window.addEventListener("quiz-data-changed", scheduleGistExport);
+
+    const r = await importFromGist();
+    return r;
   } catch (e: any) {
     return { ok: false, message: e.message };
   }
 }
 
-async function exportToWebDAV(): Promise<{ ok: boolean; message: string }> {
-  const cfg = getWebDAVConfig();
-  if (!cfg) return { ok: false, message: "未配置" };
+export async function disconnectGitHub() {
+  localStorage.removeItem("quiz-gist-config");
+  window.removeEventListener("quiz-data-changed", scheduleGistExport);
+  updateStatus({ enabled: false, mode: "", serverName: "", url: "", lastSync: 0, lastExport: 0, error: "" });
+}
+
+async function importFromGist(): Promise<{ ok: boolean; message: string }> {
+  try {
+    const res = await gistFetch(`/gists/${getGistConfig()?.gistId}`);
+    if (!res.ok) return { ok: false, message: `HTTP ${res.status}` };
+    const gist = await res.json();
+    const content = gist.files?.[SYNC_FILE]?.content;
+    if (!content) return { ok: true, message: "云端暂无数据" };
+    await mergeData(content);
+    updateStatus({ lastSync: Date.now(), error: "" });
+    notifyDataChanged();
+    return { ok: true, message: "从 GitHub 拉取成功" };
+  } catch (e: any) {
+    return { ok: false, message: e.message };
+  }
+}
+
+async function exportToGist(): Promise<{ ok: boolean; message: string }> {
   try {
     const data = await dumpData();
-    const res = await proxyFetch(davUrl(cfg), {
-      method: "PUT",
-      headers: { ...authHeaders(cfg), "Content-Type": "application/json" },
-      body: JSON.stringify(data, null, 2),
+    const res = await gistFetch(`/gists/${getGistConfig()?.gistId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ files: { [SYNC_FILE]: { content: JSON.stringify(data, null, 2) } } }),
     });
     if (!res.ok) return { ok: false, message: `HTTP ${res.status}` };
     updateStatus({ lastExport: Date.now(), error: "" });
-    return { ok: true, message: "推送成功" };
+    return { ok: true, message: "推送到 GitHub 成功" };
   } catch (e: any) {
     return { ok: false, message: e.message };
   }
-}
-
-export async function saveWebDAVConfig(url: string, username: string, password: string, serverName: string): Promise<boolean> {
-  localStorage.setItem("quiz-webdav-config", JSON.stringify({ url, username, password, serverName }));
-  updateStatus({ enabled: true, serverName, url, error: "" });
-  window.addEventListener("quiz-data-changed", scheduleAutoSave);
-  const r = await importFromWebDAV();
-  if (!r.ok) updateStatus({ error: r.message });
-  return true;
-}
-
-export async function disconnectWebDAV() {
-  localStorage.removeItem("quiz-webdav-config");
-  window.removeEventListener("quiz-data-changed", scheduleAutoSave);
-  updateStatus({ enabled: false, serverName: "", url: "", lastSync: 0, lastExport: 0, error: "" });
 }
 
 // ── File System Access API (folder sync) ────────────
@@ -156,11 +168,18 @@ async function exportToFolder() {
   }
 }
 
+function scheduleFolderExport() {
+  if (autoTimer) clearTimeout(autoTimer);
+  autoTimer = setTimeout(() => exportToFolder(), 3000);
+}
+
+export { importFromGist, exportToGist };
+
 // ── Shared ──────────────────────────────────────────
 
 export interface SyncStatus {
   enabled: boolean;
-  mode: "webdav" | "folder" | "";
+  mode: "webdav" | "folder" | "gist" | "";
   serverName: string;
   url: string;
   lastSync: number;
@@ -184,16 +203,25 @@ export function getSyncStatus(): SyncStatus {
 export function onSyncStatusChange(fn: (s: SyncStatus) => void) {
   listeners.push(fn);
   (async () => {
-    const dav = getWebDAVConfig();
-    if (dav) {
-      updateStatus({ enabled: true, mode: "webdav", serverName: dav.serverName, url: dav.url });
-      window.addEventListener("quiz-data-changed", scheduleAutoSave);
+    // Check GitHub config
+    const gistCfg = getGistConfig();
+    if (gistCfg) {
+      try {
+        const userRes = await fetch(`${GIST_API}/user`, {
+          headers: { Authorization: `Bearer ${gistCfg.token}`, Accept: "application/vnd.github.v3+json" },
+        });
+        if (userRes.ok) {
+          const user = await userRes.json();
+          updateStatus({ enabled: true, mode: "gist", serverName: `GitHub (${user.login})` });
+        }
+      } catch {}
     }
+    // Check folder config
     const folder = localStorage.getItem("quiz-folder-sync");
     if (folder) {
       try {
         const info = JSON.parse(folder);
-        updateStatus({ enabled: false, mode: "folder", serverName: `📁 ${info.folderName}`, url: "" });
+        updateStatus({ enabled: false, mode: "folder", serverName: `📁 ${info.folderName}` });
       } catch {}
     }
     fn(status);
@@ -224,14 +252,7 @@ async function mergeData(text: string) {
   }
 }
 
-function scheduleAutoSave() {
+function scheduleGistExport() {
   if (autoTimer) clearTimeout(autoTimer);
-  autoTimer = setTimeout(() => exportToWebDAV(), 5000);
+  autoTimer = setTimeout(() => exportToGist(), 5000);
 }
-
-function scheduleFolderExport() {
-  if (autoTimer) clearTimeout(autoTimer);
-  autoTimer = setTimeout(() => exportToFolder(), 3000);
-}
-
-export { importFromWebDAV, exportToWebDAV, importFromFolder as importFromFolderStatic, exportToFolder as exportToFolderStatic };
