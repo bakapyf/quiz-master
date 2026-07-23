@@ -2,3 +2,7 @@ node_modules
 dist
 .DS_Store
 *.local
+.netlify
+.vercel
+tsconfig.tsbuildinfo
+输电线路基础知识竞赛题库_第一次培训.md
