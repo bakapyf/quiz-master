@@ -38,18 +38,20 @@ export default function WrongAnswers() {
 
   useEffect(() => { loadWrongQuestions(); }, [bankId]);
 
-  const submitAndAdvance = async () => {
+  const submitAndAdvance = async (answer?: string) => {
     const q = questions[currentIndex];
     if (!q) return;
+    const ans = answer ?? selectedAnswer;
+    if (!ans) return;
     let isCorrect = false;
     if (q.type === "multiple_choice") {
       const cs = new Set(q.answer.replace(/[^A-H]/g, "").split("").filter(Boolean));
-      const us = new Set(selectedAnswer.replace(/[^A-H]/g, "").split("").filter(Boolean));
+      const us = new Set(ans.replace(/[^A-H]/g, "").split("").filter(Boolean));
       isCorrect = cs.size === us.size && [...cs].every((c) => us.has(c as string));
     } else if (q.type !== "short_answer") {
-      isCorrect = selectedAnswer.replace(/[A-H]\.\s*/g, "").trim().toLowerCase() === q.answer.replace(/[A-H]\.\s*/g, "").trim().toLowerCase();
+      isCorrect = ans.replace(/[A-H]\.\s*/g, "").trim().toLowerCase() === q.answer.replace(/[A-H]\.\s*/g, "").trim().toLowerCase();
     }
-    await db.quizRecords.add({ questionId: q.id!, bankId: q.bankId, userAnswer: selectedAnswer, isCorrect, timestamp: Date.now(), mode: "sequential" });
+    await db.quizRecords.add({ questionId: q.id!, bankId: q.bankId, userAnswer: ans, isCorrect, timestamp: Date.now(), mode: "sequential" });
     notifyDataChanged();
 
     if (isCorrect) {
@@ -69,8 +71,11 @@ export default function WrongAnswers() {
       if (!showResult && next) setShowResult(true);
     } else {
       setSelectedAnswer(letter);
-      setShowResult(true);
-      if (quickMode) submitAndAdvance();
+      if (quickMode) {
+        submitAndAdvance(letter);
+      } else {
+        setShowResult(true);
+      }
     }
   };
 
@@ -159,7 +164,7 @@ export default function WrongAnswers() {
             <button onClick={() => { if (selectedAnswer) setShowResult(true); }} disabled={!selectedAnswer} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">提交答案</button>
           )}
           {showResult && (
-            <button onClick={submitAndAdvance} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">下一题</button>
+            <button onClick={() => submitAndAdvance()} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">下一题</button>
           )}
         </div>
       </div>

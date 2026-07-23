@@ -34,9 +34,10 @@ export default function Quiz() {
 
   const toggleQuickMode = () => { const next = !quickMode; setQuickMode(next); localStorage.setItem("quiz-quick-mode", next ? "1" : "0"); };
 
-  const submitAndAdvance = async () => {
-    if (!selectedAnswer && !isMultiChoice && !isShortAnswer) return;
-    await quiz.answerQuestion(selectedAnswer);
+  const submitAndAdvance = async (answer?: string) => {
+    const ans = answer ?? selectedAnswer;
+    if (!ans) return;
+    await quiz.answerQuestion(ans);
     if (quiz.isLastQuestion) { navigate(`/banks/${id}`); return; }
     setSelectedAnswer("");
     setShowResult(false);
@@ -55,8 +56,11 @@ export default function Quiz() {
       if (!showResult && next) setShowResult(true);
     } else {
       setSelectedAnswer(letter);
-      setShowResult(true);
-      if (quickMode) submitAndAdvance();
+      if (quickMode) {
+        submitAndAdvance(letter);
+      } else {
+        setShowResult(true);
+      }
     }
   };
 
