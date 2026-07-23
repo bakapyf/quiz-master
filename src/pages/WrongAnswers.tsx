@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, Heart, Shuffle, RefreshCw } from "lucide-react";
+import { ArrowLeft, Heart, Shuffle, Zap, Check, X } from "lucide-react";
 import { db, notifyDataChanged } from "../lib/db";
 import type { Question, QuestionBank } from "../types";
 
@@ -14,112 +14,72 @@ export default function WrongAnswers() {
   const [selectedAnswer, setSelectedAnswer] = useState("");
   const [showResult, setShowResult] = useState(false);
   const [favIds, setFavIds] = useState<Set<number>>(new Set());
-  const [shuffled, setShuffled] = useState(false);
+  const [quickMode, setQuickMode] = useState(() => localStorage.getItem("quiz-quick-mode") === "1");
 
   const loadWrongQuestions = async () => {
     const bid = bankId ? Number(bankId) : undefined;
     const wrongIds = await db.getWrongQuestionIds(bid);
-
     const allQuestions: Question[] = [];
     for (const qid of wrongIds) {
       const q = await db.questions.get(qid);
       if (q) allQuestions.push(q);
     }
-
     const allBanks = await db.questionBanks.toArray();
     const bankMap = new Map<number, QuestionBank>();
     for (const b of allBanks) bankMap.set(b.id!, b);
-
     const favs = await db.favorites.toArray();
-    startQuiz(allQuestions, bankMap, new Set(favs.map((f) => f.questionId)));
-  };
-
-  const startQuiz = (
-    qs: Question[],
-    bm: Map<number, QuestionBank>,
-    fids: Set<number>
-  ) => {
-    if (shuffled) {
-      for (let i = qs.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [qs[i], qs[j]] = [qs[j], qs[i]];
-      }
-    }
-    setQuestions(qs);
-    setBanks(bm);
-    setFavIds(fids);
+    setQuestions(allQuestions);
+    setBanks(bankMap);
+    setFavIds(new Set(favs.map((f) => f.questionId)));
     setCurrentIndex(0);
     setSelectedAnswer("");
     setShowResult(false);
   };
 
-  useEffect(() => {
-    loadWrongQuestions();
-  }, [bankId]);
+  useEffect(() => { loadWrongQuestions(); }, [bankId]);
 
-  const handleAnswer = () => {
-    if (!selectedAnswer) return;
-    setShowResult(true);
-  };
-
-  const handleNext = async () => {
+  const submitAndAdvance = async () => {
     const q = questions[currentIndex];
     if (!q) return;
-
     let isCorrect = false;
     if (q.type === "multiple_choice") {
-      const correctSet = new Set(
-        q.answer.replace(/[A-H]/g, "").split("").filter(Boolean)
-      );
-      const userSet = new Set(
-        selectedAnswer.replace(/[A-H]/g, "").split("").filter(Boolean)
-      );
-      isCorrect =
-        correctSet.size === userSet.size &&
-        [...correctSet].every((c) => userSet.has(c));
+      const cs = new Set(q.answer.replace(/[^A-H]/g, "").split("").filter(Boolean));
+      const us = new Set(selectedAnswer.replace(/[^A-H]/g, "").split("").filter(Boolean));
+      isCorrect = cs.size === us.size && [...cs].every((c) => us.has(c as string));
     } else if (q.type !== "short_answer") {
-      const correct = q.answer.replace(/[A-H]\./, "").trim();
-      const user = selectedAnswer.replace(/[A-H]\./, "").trim();
-      isCorrect = user.toLowerCase() === correct.toLowerCase();
+      isCorrect = selectedAnswer.replace(/[A-H]\.\s*/g, "").trim().toLowerCase() === q.answer.replace(/[A-H]\.\s*/g, "").trim().toLowerCase();
     }
-
-    await db.quizRecords.add({
-      questionId: q.id!,
-      bankId: q.bankId,
-      userAnswer: selectedAnswer,
-      isCorrect,
-      timestamp: Date.now(),
-      mode: "sequential",
-    });
-
+    await db.quizRecords.add({ questionId: q.id!, bankId: q.bankId, userAnswer: selectedAnswer, isCorrect, timestamp: Date.now(), mode: "sequential" });
     notifyDataChanged();
 
     if (isCorrect) {
-      // Remove from wrong list locally
-      setQuestions((prev) => prev.filter((_, i) => i !== currentIndex));
-      setCurrentIndex((prev) => Math.min(prev, questions.length - 2));
-    } else {
-      setCurrentIndex((prev) => prev + 1);
+      setQuestions((p) => p.filter((_, i) => i !== currentIndex));
     }
     setSelectedAnswer("");
     setShowResult(false);
+    if (!isCorrect) setCurrentIndex((p) => Math.min(p + 1, questions.length - 1));
+  };
+
+  const handleOptionClick = (letter: string) => {
+    const q = questions[currentIndex];
+    if (!q) return;
+    if (q.type === "multiple_choice") {
+      const next = selectedAnswer.includes(letter) ? selectedAnswer.replace(letter, "") : (selectedAnswer + letter).split("").sort().join("");
+      setSelectedAnswer(next);
+      if (!showResult && next) setShowResult(true);
+    } else {
+      setSelectedAnswer(letter);
+      setShowResult(true);
+      if (quickMode) submitAndAdvance();
+    }
   };
 
   const toggleFav = async (questionId?: number) => {
     if (!questionId) return;
     const q = questions[currentIndex];
     const existing = await db.favorites.where({ questionId, bankId: q.bankId }).first();
-    if (existing) {
-      await db.favorites.delete(existing.id!);
-      setFavIds((prev) => {
-        const next = new Set(prev);
-        next.delete(questionId);
-        return next;
-      });
-    } else {
-      await db.favorites.add({ questionId, bankId: q.bankId, timestamp: Date.now() });
-      setFavIds((prev) => new Set(prev).add(questionId));
-    }
+    if (existing) { await db.favorites.delete(existing.id!); setFavIds((p) => { const n = new Set(p); n.delete(questionId); return n; }); }
+    else { await db.favorites.add({ questionId, bankId: q.bankId, timestamp: Date.now() }); setFavIds((p) => new Set(p).add(questionId)); }
   };
 
   if (questions.length === 0) {
@@ -127,170 +87,79 @@ export default function WrongAnswers() {
       <div className="max-w-md mx-auto text-center py-16 animate-fade-in">
         <div className="text-6xl mb-4">🎉</div>
         <h2 className="text-xl font-bold mb-2">没有错题</h2>
-        <p className="text-slate-500 dark:text-slate-400 mb-6">
-          继续保持，你很棒！
-        </p>
-        <button
-          onClick={() => navigate("/")}
-          className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors"
-        >
-          返回首页
-        </button>
+        <p className="text-slate-500 dark:text-slate-400 mb-6">继续保持，你很棒！</p>
+        <button onClick={() => navigate("/")} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700">返回首页</button>
       </div>
     );
   }
 
   const q = questions[currentIndex];
   if (!q) return null;
-
-  const isMultiChoice = q.type === "multiple_choice";
-
-  const handleMultiToggle = (opt: string) => {
-    const letter = opt.charAt(0);
-    setSelectedAnswer((prev) => {
-      if (prev.includes(letter)) return prev.replace(letter, "");
-      return (prev + letter).split("").sort().join("");
-    });
-  };
+  const isMulti = q.type === "multiple_choice";
+  const isShort = q.type === "short_answer";
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 animate-fade-in">
       <div className="flex items-center gap-3">
-        <button
-          onClick={() => navigate("/")}
-          className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg transition-colors"
-        >
-          <ArrowLeft size={20} />
-        </button>
+        <button onClick={() => navigate("/")} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg"><ArrowLeft size={20} /></button>
         <div className="flex-1">
           <h2 className="text-xl font-bold">错题本</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            {questions.length} 道错题 · {bankId ? banks.get(Number(bankId))?.name : "全部题库"}
-          </p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">{questions.length} 道错题{bankId ? ` · ${banks.get(Number(bankId))?.name}` : " · 全部题库"}</p>
         </div>
-        <button
-          onClick={async () => {
-            const qs = [...questions];
-            for (let i = qs.length - 1; i > 0; i--) {
-              const j = Math.floor(Math.random() * (i + 1));
-              [qs[i], qs[j]] = [qs[j], qs[i]];
-            }
-            setQuestions(qs);
-            setCurrentIndex(0);
-            setSelectedAnswer("");
-            setShowResult(false);
-            setShuffled(true);
-          }}
-          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors"
-          title="随机打乱"
-        >
-          <Shuffle size={18} />
-        </button>
+        <button onClick={() => { const qs = [...questions].sort(() => Math.random() - 0.5); setQuestions(qs); setCurrentIndex(0); setSelectedAnswer(""); setShowResult(false); }} className="p-2 text-slate-400 hover:text-indigo-600 rounded-lg" title="随机打乱"><Shuffle size={18} /></button>
+        <button onClick={() => { const next = !quickMode; setQuickMode(next); localStorage.setItem("quiz-quick-mode", next ? "1" : "0"); }} className={`p-2 rounded-lg ${quickMode ? "bg-amber-100 dark:bg-amber-900/30 text-amber-600" : "text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"}`} title={quickMode ? "快速模式" : "普通模式"}><Zap size={18} fill={quickMode ? "currentColor" : "none"} /></button>
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
         <div className="flex items-start justify-between gap-2 mb-4">
           <div className="flex items-center gap-2">
-            <span className="px-2.5 py-1 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-xs font-medium rounded-md">
-              错题重做
-            </span>
-            <span className="text-sm text-slate-500">
-              {currentIndex + 1} / {questions.length}
-            </span>
-            <span className="text-xs text-slate-400">
-              ({banks.get(q.bankId)?.name || "未知"})
-            </span>
+            <span className="px-2.5 py-1 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-xs font-medium rounded-md">错题重做</span>
+            <span className="text-sm text-slate-500">{currentIndex + 1} / {questions.length}</span>
+            <span className="text-xs text-slate-400">({banks.get(q.bankId)?.name || "未知"})</span>
           </div>
-          <button
-            onClick={() => toggleFav(q.id)}
-            className={`p-1.5 rounded-lg transition-colors ${
-              favIds.has(q.id!)
-                ? "text-pink-500 bg-pink-50 dark:bg-pink-900/20"
-                : "text-slate-400 hover:text-pink-500"
-            }`}
-          >
-            <Heart size={18} fill={favIds.has(q.id!) ? "currentColor" : "none"} />
-          </button>
+          <button onClick={() => toggleFav(q.id)} className={`p-1.5 rounded-lg ${favIds.has(q.id!) ? "text-pink-500 bg-pink-50 dark:bg-pink-900/20" : "text-slate-400 hover:text-pink-500"}`}><Heart size={18} fill={favIds.has(q.id!) ? "currentColor" : "none"} /></button>
         </div>
 
-        <div className="question-content mb-6">
-          <p className="text-lg font-medium leading-relaxed">
-            {currentIndex + 1}. {q.stem}
-          </p>
-        </div>
+        <div className="question-content mb-6"><p className="text-lg font-medium leading-relaxed">{currentIndex + 1}. {q.stem}</p></div>
 
         <div className="space-y-2.5">
           {q.options.map((opt, i) => {
             const letter = opt.charAt(0);
-            const isSelected = isMultiChoice
-              ? selectedAnswer.includes(letter)
-              : selectedAnswer === letter;
-
-            let optionClass =
-              "border-slate-200 dark:border-slate-700 hover:border-indigo-300";
-            if (showResult && !isMultiChoice) {
-              const correctLetter = q.answer.replace(/[^A-H]/g, "").charAt(0);
-              if (letter === correctLetter)
-                optionClass = "border-emerald-300 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20";
-              else if (isSelected)
-                optionClass = "border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20";
-            } else if (isSelected) {
-              optionClass = "border-indigo-300 dark:border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30";
-            }
-
+            const isSelected = isMulti ? selectedAnswer.includes(letter) : selectedAnswer === letter;
+            let oc = "border-slate-200 dark:border-slate-700 hover:border-indigo-300";
+            if (showResult && !isMulti) {
+              const cl = q.answer.replace(/[^A-H]/g, "").charAt(0);
+              if (letter === cl) oc = "border-emerald-300 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20";
+              else if (isSelected) oc = "border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20";
+            } else if (isSelected) oc = "border-indigo-300 dark:border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30";
             return (
-              <button
-                key={i}
-                disabled={showResult}
-                onClick={() =>
-                  isMultiChoice ? handleMultiToggle(opt) : setSelectedAnswer(letter)
-                }
-                className={`w-full text-left p-3.5 rounded-lg border transition-colors flex items-start gap-3 ${optionClass}`}
-              >
-                <span
-                  className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-                    isSelected
-                      ? "bg-indigo-600 text-white"
-                      : "bg-slate-100 dark:bg-slate-800 text-slate-600"
-                  }`}
-                >
-                  {letter}
-                </span>
+              <button key={i} disabled={showResult && !isMulti} onClick={() => handleOptionClick(letter)} className={`w-full text-left p-3.5 rounded-lg border transition-colors flex items-start gap-3 ${oc}`}>
+                <span className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${isSelected ? "bg-indigo-600 text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-600"}`}>{letter}</span>
                 <span className="text-sm leading-relaxed pt-0.5">{opt.slice(3)}</span>
+                {showResult && !isMulti && letter === q.answer.replace(/[^A-H]/g, "").charAt(0) && <Check size={16} className="ml-auto pt-0.5 text-emerald-500" />}
+                {showResult && !isMulti && isSelected && letter !== q.answer.replace(/[^A-H]/g, "").charAt(0) && <X size={16} className="ml-auto pt-0.5 text-red-500" />}
               </button>
             );
           })}
+          {isShort && <textarea disabled={showResult} value={selectedAnswer} onChange={(e) => setSelectedAnswer(e.target.value)} placeholder="输入答案..." rows={3} className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-sm resize-none focus:outline-none focus:border-indigo-300" />}
         </div>
 
         {showResult && (
           <div className="mt-5 p-4 bg-slate-50 dark:bg-slate-800 rounded-lg animate-slide-up">
-            <p className="text-sm font-medium mb-1">
-              答案: <span className="text-emerald-600">{q.answer}</span>
-            </p>
-            {q.explanation && (
-              <div className="question-content text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                {q.explanation}
-              </div>
-            )}
+            <p className="text-sm font-medium mb-1">答案: <span className="text-emerald-600">{q.answer}</span></p>
+            {q.explanation && <div className="question-content text-sm text-slate-600 dark:text-slate-400 leading-relaxed">{q.explanation}</div>}
           </div>
         )}
 
         <div className="mt-6 flex gap-3">
-          {!showResult ? (
-            <button
-              onClick={handleAnswer}
-              disabled={!selectedAnswer}
-              className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-            >
-              确认答案
-            </button>
-          ) : (
-            <button
-              onClick={handleNext}
-              className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
-            >
-              下一题
-            </button>
+          {isMulti && !showResult && (
+            <button onClick={() => { if (selectedAnswer) setShowResult(true); }} disabled={!selectedAnswer} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">提交答案</button>
+          )}
+          {isShort && !showResult && (
+            <button onClick={() => { if (selectedAnswer) setShowResult(true); }} disabled={!selectedAnswer} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">提交答案</button>
+          )}
+          {showResult && (
+            <button onClick={submitAndAdvance} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">下一题</button>
           )}
         </div>
       </div>
