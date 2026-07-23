@@ -83,20 +83,14 @@ export default function QuestionNav({
             </div>
             <div className="p-5 space-y-4">
               {groups.map((group) => {
-                const startNum = group.indices[0] + 1;
-                const endNum = group.indices[group.indices.length - 1] + 1;
                 return (
                   <div key={group.type}>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                        {group.label}
-                      </span>
-                      <span className="text-[10px] text-slate-400">
-                        {group.indices.length}题
-                      </span>
+                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{group.label}</span>
+                      <span className="text-[10px] text-slate-400">{group.indices.length}题</span>
                     </div>
                     <div className="grid grid-cols-6 sm:grid-cols-8 gap-1.5">
-                      {group.indices.map((idx) => {
+                      {group.indices.map((idx, gi) => {
                         const q = questions[idx];
                         const answered = answers.has(q.id!);
                         return (
@@ -116,7 +110,7 @@ export default function QuestionNav({
                                 : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
                             }`}
                           >
-                            {idx + 1}
+                            {gi + 1}
                           </button>
                         );
                       })}
