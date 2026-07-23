@@ -50,8 +50,12 @@ export default function Dashboard() {
   useEffect(() => {
     loadStats();
     window.addEventListener("quiz-data-changed", loadStats);
+    window.addEventListener("storage", (e) => {
+      if (e.key === "quiz-data-version") loadStats();
+    });
     return () => {
       window.removeEventListener("quiz-data-changed", loadStats);
+      window.removeEventListener("storage", loadStats);
     };
   }, []);
 

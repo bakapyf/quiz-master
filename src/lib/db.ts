@@ -9,6 +9,8 @@ import type {
 
 export function notifyDataChanged() {
   if (typeof window !== "undefined") {
+    const v = parseInt(localStorage.getItem("quiz-data-version") || "0") + 1;
+    localStorage.setItem("quiz-data-version", String(v));
     window.dispatchEvent(new CustomEvent("quiz-data-changed"));
   }
 }
