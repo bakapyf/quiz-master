@@ -2,26 +2,25 @@ import { db, notifyDataChanged } from "./db";
 
 const SYNC_FILE = "quiz-master-data.json";
 
-declare global {
-  interface Window {
-    showDirectoryPicker?: (options?: {
-      mode?: "read" | "readwrite";
-    }) => Promise<FileSystemDirectoryHandle>;
-  }
-}
-
 export interface SyncStatus {
   enabled: boolean;
-  folderName: string;
+  serverName: string;
+  url: string;
   lastSync: number;
   lastExport: number;
   error: string;
 }
 
-let dirHandle: FileSystemDirectoryHandle | null = null;
+interface SyncConfig {
+  url: string;
+  username: string;
+  password: string;
+}
+
 let status: SyncStatus = {
   enabled: false,
-  folderName: "",
+  serverName: "",
+  url: "",
   lastSync: 0,
   lastExport: 0,
   error: "",
@@ -40,89 +39,76 @@ export function getSyncStatus(): SyncStatus {
 
 export function onSyncStatusChange(fn: (s: SyncStatus) => void) {
   listeners.push(fn);
+  (async () => {
+    const saved = localStorage.getItem("quiz-webdav-config");
+    if (saved) {
+      try {
+        const cfg = JSON.parse(saved);
+        updateStatus({
+          enabled: true,
+          serverName: cfg.serverName || new URL(cfg.url).hostname,
+          url: cfg.url,
+        });
+      } catch {}
+    }
+    fn(status);
+  })();
   return () => {
     listeners = listeners.filter((l) => l !== fn);
   };
 }
 
-export function supportsFileSystemAccess(): boolean {
-  return typeof window !== "undefined" && !!window.showDirectoryPicker;
-}
-
-export async function selectSyncFolder(): Promise<boolean> {
-  if (!supportsFileSystemAccess()) return false;
-
+function getConfig(): SyncConfig | null {
+  const saved = localStorage.getItem("quiz-webdav-config");
+  if (!saved) return null;
   try {
-    const handle = await window.showDirectoryPicker!({
-      mode: "readwrite",
-    });
-    dirHandle = handle;
-
-    const info = {
-      folderName: handle.name,
-      enabled: true,
-      lastSync: Date.now(),
-    };
-    localStorage.setItem("quiz-sync-folder", JSON.stringify(info));
-    updateStatus({ ...info, error: "" });
-
-    // Load existing data from the folder
-    await importFromFolder();
-
-    // Set up auto-save listener
-    window.addEventListener("quiz-data-changed", scheduleAutoSave);
-
-    return true;
-  } catch (e: any) {
-    if (e.name === "AbortError") return false;
-    updateStatus({ error: e.message || String(e) });
-    return false;
+    return JSON.parse(saved);
+  } catch {
+    return null;
   }
 }
 
-export async function disableSync() {
-  dirHandle = null;
-  localStorage.removeItem("quiz-sync-folder");
-  window.removeEventListener("quiz-data-changed", scheduleAutoSave);
-  updateStatus({
-    enabled: false,
-    folderName: "",
-    lastSync: 0,
-    lastExport: 0,
-    error: "",
-  });
+function authHeaders(cfg: SyncConfig): Record<string, string> {
+  const token = btoa(`${cfg.username}:${cfg.password}`);
+  return {
+    Authorization: `Basic ${token}`,
+  };
 }
 
-export async function initSyncFromStorage() {
-  const saved = localStorage.getItem("quiz-sync-folder");
-  if (!saved) return;
-
-  try {
-    const info = JSON.parse(saved);
-    if (info.enabled && supportsFileSystemAccess()) {
-      // Folder handle can't be stored - need to re-prompt
-      // Show a prompt or just disable
-      updateStatus({
-        enabled: false,
-        folderName: info.folderName,
-        error: "需要重新选择同步文件夹",
-      });
-    }
-  } catch {}
+function buildUrl(cfg: SyncConfig): string {
+  const base = cfg.url.replace(/\/+$/, "");
+  return `${base}/${SYNC_FILE}`;
 }
 
-async function importFromFolder() {
-  if (!dirHandle) return;
+export async function importFromWebDAV(): Promise<{
+  ok: boolean;
+  message: string;
+}> {
+  const cfg = getConfig();
+  if (!cfg) return { ok: false, message: "未配置同步" };
+
+  const url = buildUrl(cfg);
 
   try {
-    const fileHandle = await dirHandle.getFileHandle(SYNC_FILE, {
-      create: false,
+    const res = await fetch(url, {
+      headers: authHeaders(cfg),
     });
-    const file = await fileHandle.getFile();
-    const text = await file.text();
+
+    if (res.status === 404) {
+      return { ok: true, message: "云端暂无数据" };
+    }
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        message: `下载失败: HTTP ${res.status}`,
+      };
+    }
+
+    const text = await res.text();
     const remote = JSON.parse(text);
 
-    // Merge: import remote data into local DB
+    // Merge remote data into local DB
     if (remote.questionBanks) {
       for (const bank of remote.questionBanks) {
         const existing = await db.questionBanks.get(bank.id!);
@@ -154,21 +140,26 @@ async function importFromFolder() {
       }
     }
 
-    updateStatus({ lastSync: Date.now() });
+    updateStatus({ lastSync: Date.now(), error: "" });
     notifyDataChanged();
+    return {
+      ok: true,
+      message: `同步完成，拉取了 ${remote.questions?.length || 0} 道题目`,
+    };
   } catch (e: any) {
-    // File doesn't exist yet - that's OK for first sync
-    if (e.name !== "NotFoundError") {
-      updateStatus({ error: "读取失败: " + e.message });
-    }
+    updateStatus({ error: e.message });
+    return { ok: false, message: e.message };
   }
 }
 
-export async function exportToFolder(): Promise<boolean> {
-  if (!dirHandle) {
-    updateStatus({ error: "未选择同步文件夹" });
-    return false;
-  }
+export async function exportToWebDAV(): Promise<{
+  ok: boolean;
+  message: string;
+}> {
+  const cfg = getConfig();
+  if (!cfg) return { ok: false, message: "未配置同步" };
+
+  const url = buildUrl(cfg);
 
   try {
     const data = {
@@ -181,28 +172,95 @@ export async function exportToFolder(): Promise<boolean> {
       exportedAt: Date.now(),
     };
 
-    const fileHandle = await dirHandle.getFileHandle(SYNC_FILE, {
-      create: true,
+    const res = await fetch(url, {
+      method: "PUT",
+      headers: {
+        ...authHeaders(cfg),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data, null, 2),
     });
-    const writable = await fileHandle.createWritable();
-    await writable.write(JSON.stringify(data, null, 2));
-    await writable.close();
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        message: `上传失败: HTTP ${res.status}`,
+      };
+    }
 
     updateStatus({ lastExport: Date.now(), error: "" });
-    return true;
+    return { ok: true, message: "上传成功" };
   } catch (e: any) {
-    updateStatus({ error: "保存失败: " + e.message });
+    updateStatus({ error: e.message });
+    return { ok: false, message: e.message };
+  }
+}
+
+export async function saveConfig(
+  url: string,
+  username: string,
+  password: string,
+  serverName: string
+): Promise<boolean> {
+  const cleanUrl = url.replace(/\/+$/, "");
+  const cfg: SyncConfig = { url: cleanUrl, username, password };
+
+  // Test connection
+  try {
+    const testRes = await fetch(cleanUrl + "/", {
+      method: "PROPFIND",
+      headers: {
+        ...authHeaders(cfg),
+        Depth: "0",
+      },
+    });
+
+    if (!testRes.ok && testRes.status !== 207) {
+      updateStatus({ error: `连接失败: HTTP ${testRes.status}` });
+      return false;
+    }
+  } catch (e: any) {
+    updateStatus({ error: "连接失败: " + e.message });
     return false;
   }
+
+  localStorage.setItem(
+    "quiz-webdav-config",
+    JSON.stringify({ url: cleanUrl, username, password, serverName })
+  );
+
+  updateStatus({
+    enabled: true,
+    serverName,
+    url: cleanUrl,
+    error: "",
+  });
+
+  // Set up auto-save
+  window.addEventListener("quiz-data-changed", scheduleAutoSave);
+
+  // Import existing data from cloud
+  await importFromWebDAV();
+
+  return true;
+}
+
+export async function disableSync() {
+  localStorage.removeItem("quiz-webdav-config");
+  window.removeEventListener("quiz-data-changed", scheduleAutoSave);
+  updateStatus({
+    enabled: false,
+    serverName: "",
+    url: "",
+    lastSync: 0,
+    lastExport: 0,
+    error: "",
+  });
 }
 
 function scheduleAutoSave() {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
-    exportToFolder();
-  }, 3000);
-}
-
-export function getSyncReport(): SyncStatus {
-  return { ...status };
+    exportToWebDAV();
+  }, 5000);
 }
