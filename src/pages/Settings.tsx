@@ -10,15 +10,19 @@ import {
   CloudOff,
   Link,
   Key,
+  FolderOpen,
 } from "lucide-react";
 import { db } from "../lib/db";
 import {
   getSyncStatus,
   onSyncStatusChange,
-  saveConfig,
-  disableSync,
+  saveWebDAVConfig,
+  disconnectWebDAV,
   importFromWebDAV,
   exportToWebDAV,
+  selectSyncFolder,
+  disconnectFolder,
+  supportsFolderSync,
   type SyncStatus,
 } from "../lib/sync";
 
@@ -35,17 +39,9 @@ export default function Settings() {
   const [wuser, setWuser] = useState("");
   const [wpass, setWpass] = useState("");
   const [wName, setWName] = useState("");
-  const [connecting, setConnecting] = useState(false);
-  const [syncAction, setSyncAction] = useState("");
 
   useEffect(() => {
-    return onSyncStatusChange((s) => {
-      setSyncStatus(s);
-      if (s.enabled) {
-        setWurl(s.url);
-        setWName(s.serverName);
-      }
-    });
+    return onSyncStatusChange(setSyncStatus);
   }, []);
 
   const toggleDark = () => {
@@ -55,44 +51,40 @@ export default function Settings() {
     document.documentElement.classList.toggle("dark", next);
   };
 
-  const handleConnect = async () => {
+  const handleWebDAVConnect = async () => {
     if (!wurl || !wuser || !wpass) {
       setMsg("请填写完整信息");
       return;
     }
-    setConnecting(true);
     const name = wName || new URL(wurl).hostname;
-    const ok = await saveConfig(wurl, wuser, wpass, name);
-    if (ok) {
-      setMsg("连接成功！已自动从云端拉取数据");
-    } else {
-      setMsg("连接失败，请检查地址和账号密码");
-    }
-    setConnecting(false);
+    await saveWebDAVConfig(wurl, wuser, wpass, name);
+    setMsg("已连接，自动拉取云端数据");
   };
 
   const handleDisconnect = () => {
-    disableSync();
-    setWurl("");
-    setWuser("");
-    setWpass("");
-    setWName("");
-    setMsg("已断开云同步");
+    disconnectWebDAV();
+    setMsg("已断开 WebDAV 同步");
   };
 
   const handlePull = async () => {
-    setSyncAction("拉取中...");
     const r = await importFromWebDAV();
-    setSyncAction("");
     setMsg(r.message);
     if (r.ok) window.location.reload();
   };
 
   const handlePush = async () => {
-    setSyncAction("推送中...");
     const r = await exportToWebDAV();
-    setSyncAction("");
     setMsg(r.message);
+  };
+
+  const handleSelectFolder = async () => {
+    const ok = await selectSyncFolder();
+    if (ok) setMsg("同步文件夹已设置，数据自动保存");
+  };
+
+  const handleDisconnectFolder = () => {
+    disconnectFolder();
+    setMsg("已断开文件夹同步");
   };
 
   const handleExport = async () => {
@@ -168,128 +160,86 @@ export default function Settings() {
         </div>
       )}
 
-      {/* WebDAV Sync */}
+      {/* 云同步 */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-200 dark:divide-slate-700">
+        {/* 方式一：文件夹同步 */}
         <div className="p-4">
-          <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
-            云同步 (WebDAV)
+          <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+            方式一：文件夹同步
           </h3>
+          <p className="text-xs text-slate-400 mb-3">
+            适用 Chrome/Edge，选坚果云/iCloud/Dropbox 本地目录，自动读写文件实现同步
+          </p>
 
-          {syncStatus.enabled ? (
+          {syncStatus.mode === "folder" ? (
             <div className="space-y-3">
               <div className="flex items-center gap-3 p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg">
                 <CheckCircle size={18} className="text-emerald-500" />
                 <div className="text-sm">
-                  <p className="font-medium">
-                    已连接 {syncStatus.serverName}
-                  </p>
+                  <p className="font-medium">{syncStatus.serverName}</p>
                   <p className="text-xs text-slate-500">
-                    上次拉取: {formatTime(syncStatus.lastSync)}
-                    {" · "}
-                    上次推送: {formatTime(syncStatus.lastExport)}
+                    上次保存: {formatTime(syncStatus.lastExport)}
+                  </p>
+                </div>
+              </div>
+              <button onClick={handleDisconnectFolder} className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+                <CloudOff size={14} /> 断开
+              </button>
+            </div>
+          ) : supportsFolderSync() ? (
+            <button onClick={handleSelectFolder} className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">
+              <FolderOpen size={16} /> 选择同步文件夹
+            </button>
+          ) : (
+            <p className="text-xs text-slate-400">当前浏览器不支持文件夹选择（请用 Chrome/Edge）</p>
+          )}
+        </div>
+
+        {/* 方式二：WebDAV */}
+        <div className="p-4">
+          <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+            方式二：WebDAV
+          </h3>
+          <p className="text-xs text-slate-400 mb-3">
+            和 Zotero 一样，输入 WebDAV 地址和密码。坚果云用户请用应用密码
+          </p>
+
+          {syncStatus.mode === "webdav" ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg">
+                <CheckCircle size={18} className="text-emerald-500" />
+                <div className="text-sm">
+                  <p className="font-medium">{syncStatus.serverName}</p>
+                  <p className="text-xs text-slate-500">
+                    上次拉取: {formatTime(syncStatus.lastSync)} · 上次推送: {formatTime(syncStatus.lastExport)}
                   </p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={handlePull}
-                  disabled={!!syncAction}
-                  className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-                >
-                  {syncAction === "拉取中..." ? (
-                    "拉取中..."
-                  ) : (
-                    <>
-                      <Cloud size={14} />
-                      从云端拉取
-                    </>
-                  )}
+                <button onClick={handlePull} className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
+                  <Cloud size={14} /> 从云端拉取
                 </button>
-                <button
-                  onClick={handlePush}
-                  disabled={!!syncAction}
-                  className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-                >
-                  {syncAction === "推送中..." ? (
-                    "推送中..."
-                  ) : (
-                    <>
-                      <Cloud size={14} />
-                      推送到云端
-                    </>
-                  )}
+                <button onClick={handlePush} className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
+                  <Cloud size={14} /> 推送到云端
                 </button>
-                <button
-                  onClick={handleDisconnect}
-                  className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                >
-                  <CloudOff size={14} />
-                  断开
+                <button onClick={handleDisconnect} className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+                  <CloudOff size={14} /> 断开
                 </button>
               </div>
             </div>
           ) : (
-            <div className="space-y-3">
-              <p className="text-sm text-slate-500">
-                和 Zotero 一样通过 WebDAV 连接云端服务。支持坚果云、Infini
-                Cloud、Nextcloud 等。
-              </p>
-              <div className="space-y-2.5">
-                <div className="flex items-center gap-2">
-                  <Link size={14} className="text-slate-400 flex-shrink-0" />
-                  <input
-                    value={wurl}
-                    onChange={(e) => setWurl(e.target.value)}
-                    placeholder="WebDAV 地址，如 https://dav.jianguoyun.com/dav/"
-                    className="flex-1 px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:border-indigo-300"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Key size={14} className="text-slate-400 flex-shrink-0" />
-                  <input
-                    value={wuser}
-                    onChange={(e) => setWuser(e.target.value)}
-                    placeholder="用户名 / 邮箱"
-                    className="flex-1 px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:border-indigo-300"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Key size={14} className="text-slate-400 flex-shrink-0" />
-                  <input
-                    type="password"
-                    value={wpass}
-                    onChange={(e) => setWpass(e.target.value)}
-                    placeholder="密码（坚果云需用应用密码）"
-                    className="flex-1 px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:border-indigo-300"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Cloud size={14} className="text-slate-400 flex-shrink-0" />
-                  <input
-                    value={wName}
-                    onChange={(e) => setWName(e.target.value)}
-                    placeholder="服务名称（可选，如：我的坚果云）"
-                    className="flex-1 px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:border-indigo-300"
-                  />
-                </div>
-              </div>
-              <button
-                onClick={handleConnect}
-                disabled={connecting}
-                className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-              >
-                <Cloud size={16} />
-                {connecting ? "连接中..." : "连接并同步"}
+            <div className="space-y-2.5">
+              <input value={wurl} onChange={(e) => setWurl(e.target.value)} placeholder="WebDAV 地址，如 https://dav.jianguoyun.com/dav/" className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:border-indigo-300" />
+              <input value={wuser} onChange={(e) => setWuser(e.target.value)} placeholder="用户名 / 邮箱" className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:border-indigo-300" />
+              <input type="password" value={wpass} onChange={(e) => setWpass(e.target.value)} placeholder="密码（坚果云需应用密码）" className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:border-indigo-300" />
+              <input value={wName} onChange={(e) => setWName(e.target.value)} placeholder="服务名称（可选）" className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:border-indigo-300" />
+              <button onClick={handleWebDAVConnect} className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">
+                <Cloud size={16} /> 连接 WebDAV
               </button>
-              <p className="text-xs text-slate-400">
-                坚果云用户请在坚果云网页端→账户信息→安全选项→生成第三方应用密码
-              </p>
             </div>
           )}
 
-          {syncStatus.error && (
-            <p className="mt-2 text-xs text-red-500">{syncStatus.error}</p>
-          )}
+          {syncStatus.error && <p className="mt-2 text-xs text-red-500">{syncStatus.error}</p>}
         </div>
 
         {/* Appearance */}
