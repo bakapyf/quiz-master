@@ -157,6 +157,7 @@ export default function WrongAnswers() {
           <div className="flex items-start justify-between gap-2 mb-4">
             <div className="flex items-center gap-2">
               <span className="px-2.5 py-1 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-xs font-medium rounded-md">错题</span>
+              <span className="px-2.5 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-medium rounded-md">{typeLabel(q.type)}</span>
               <span className="text-sm text-slate-500">{currentIndex + 1} / {questions.length}</span>
               <span className="text-xs text-slate-400">({banks.find((b) => b.id === q.bankId)?.name})</span>
             </div>
@@ -236,4 +237,15 @@ export default function WrongAnswers() {
       </div>
     </div>
   );
+}
+
+const typeLabels: Record<string, string> = {
+  single_choice: "单选",
+  multiple_choice: "多选",
+  true_false: "判断",
+  short_answer: "简答",
+};
+
+function typeLabel(type: string): string {
+  return typeLabels[type] || "未知";
 }

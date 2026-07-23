@@ -29,10 +29,22 @@ export function useQuiz(bankId: number, config: QuizConfig) {
         .sortBy("order");
 
       if (config.mode === "random") {
-        for (let i = questions.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [questions[i], questions[j]] = [questions[j], questions[i]];
+        const typeOrder = ["single_choice", "multiple_choice", "true_false", "short_answer"];
+        const byType = new Map<string, typeof questions>();
+        for (const t of typeOrder) byType.set(t, []);
+        for (const q of questions) {
+          const arr = byType.get(q.type);
+          if (arr) arr.push(q);
         }
+        // Shuffle within each type
+        for (const [, arr] of byType) {
+          for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+          }
+        }
+        // Concatenate in type order
+        questions = typeOrder.flatMap((t) => byType.get(t) || []);
       }
 
       if (config.questionCount && config.questionCount < questions.length) {
