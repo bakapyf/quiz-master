@@ -176,17 +176,39 @@ export default function WrongAnswers() {
               const letter = opt.charAt(0);
               const isSelected = isMulti ? selectedAnswer.includes(letter) : selectedAnswer === letter;
               let oc = "border-slate-200 dark:border-slate-700 hover:border-indigo-300";
-              if (showResult && !isMulti) {
-                const cl = q.answer.replace(/[^A-H]/g, "").charAt(0);
-                if (letter === cl) oc = "border-emerald-300 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20";
-                else if (isSelected) oc = "border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20";
-              } else if (isSelected) oc = "border-indigo-300 dark:border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30";
+              let showCheck: string | null = null;
+
+              if (showResult) {
+                const correctLetters = q.answer.replace(/[^A-H]/g, "").split("").filter(Boolean);
+                const isCorrectOption = correctLetters.includes(letter);
+
+                if (isMulti) {
+                  if (isCorrectOption && isSelected) {
+                    oc = "border-emerald-300 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20";
+                    showCheck = "correct";
+                  } else if (!isCorrectOption && isSelected) {
+                    oc = "border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20";
+                    showCheck = "wrong";
+                  } else if (isCorrectOption && !isSelected) {
+                    oc = "border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20";
+                    showCheck = "missed";
+                  }
+                } else {
+                  const correctLetter = correctLetters[0];
+                  if (letter === correctLetter) { oc = "border-emerald-300 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20"; showCheck = "correct"; }
+                  else if (isSelected) { oc = "border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20"; showCheck = "wrong"; }
+                }
+              } else if (isSelected) {
+                oc = "border-indigo-300 dark:border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30";
+              }
+
               return (
                 <button key={i} disabled={showResult && !isMulti} onClick={() => handleOptionClick(letter)} className={`w-full text-left p-3.5 rounded-lg border transition-colors flex items-start gap-3 ${oc}`}>
                   <span className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${isSelected ? "bg-indigo-600 text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-600"}`}>{letter}</span>
                   <span className="text-sm leading-relaxed pt-0.5">{opt.slice(3)}</span>
-                  {showResult && !isMulti && letter === q.answer.replace(/[^A-H]/g, "").charAt(0) && <Check size={16} className="ml-auto pt-0.5 text-emerald-500" />}
-                  {showResult && !isMulti && isSelected && letter !== q.answer.replace(/[^A-H]/g, "").charAt(0) && <X size={16} className="ml-auto pt-0.5 text-red-500" />}
+                  {showCheck === "correct" && <Check size={16} className="ml-auto pt-0.5 text-emerald-500" />}
+                  {showCheck === "wrong" && <X size={16} className="ml-auto pt-0.5 text-red-500" />}
+                  {showCheck === "missed" && <span className="ml-auto text-xs text-amber-500 font-medium pt-0.5">漏选</span>}
                 </button>
               );
             })}
