@@ -1,0 +1,1 @@
+cd /Users/pyf/Documents/OpenCode/quiz-master && npm run build && npx serve dist -l 3000
