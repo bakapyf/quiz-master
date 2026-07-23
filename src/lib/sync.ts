@@ -2,6 +2,14 @@ import { db, notifyDataChanged } from "./db";
 
 const SYNC_FILE = "quiz-master-data.json";
 
+function proxyFetch(
+  targetUrl: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const proxyUrl = `/api/proxy?url=${encodeURIComponent(targetUrl)}`;
+  return fetch(proxyUrl, options);
+}
+
 export interface SyncStatus {
   enabled: boolean;
   serverName: string;
@@ -90,7 +98,7 @@ export async function importFromWebDAV(): Promise<{
   const url = buildUrl(cfg);
 
   try {
-    const res = await fetch(url, {
+    const res = await proxyFetch(url, {
       headers: authHeaders(cfg),
     });
 
@@ -172,7 +180,7 @@ export async function exportToWebDAV(): Promise<{
       exportedAt: Date.now(),
     };
 
-    const res = await fetch(url, {
+    const res = await proxyFetch(url, {
       method: "PUT",
       headers: {
         ...authHeaders(cfg),
@@ -207,7 +215,7 @@ export async function saveConfig(
 
   // Test connection
   try {
-    const testRes = await fetch(cleanUrl + "/", {
+    const testRes = await proxyFetch(cleanUrl + "/", {
       method: "PROPFIND",
       headers: {
         ...authHeaders(cfg),
