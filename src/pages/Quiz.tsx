@@ -167,9 +167,12 @@ export default function Quiz() {
                   showCheck = "missed";
                 }
               } else {
-                // Single / True-False
-                const correctLetter = correctLetters[0];
-                if (letter === correctLetter) {
+                // Single / True-False: compare answer text with option text
+                const optText = opt.replace(/^[A-H][.、]\s*/, "").trim();
+                const ansText = q.answer.trim();
+                const isOptCorrect = optText === ansText || (ansText === "√" && optText.includes("正确")) || (ansText === "×" && optText.includes("错误"));
+
+                if (isOptCorrect) {
                   optClass = "border-emerald-300 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20";
                   showCheck = "correct";
                 } else if (isSelected) {
