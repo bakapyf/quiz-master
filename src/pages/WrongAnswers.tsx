@@ -86,7 +86,6 @@ export default function WrongAnswers() {
     for (const r of records) await db.quizRecords.delete(r.id!);
     notifyDataChanged();
     setQuestions((p) => p.filter((_, i) => i !== currentIndex));
-    loadWrongQuestions();
   };
 
   const handleOptionClick = (letter: string) => {
