@@ -231,11 +231,11 @@ export default function WrongAnswers() {
             if (showResult && !isMultiChoice) {
               const correctLetter = q.answer.replace(/[^A-H]/g, "").charAt(0);
               if (letter === correctLetter)
-                optionClass = "border-emerald-300 bg-emerald-50";
+                optionClass = "border-emerald-300 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20";
               else if (isSelected)
-                optionClass = "border-red-300 bg-red-50";
+                optionClass = "border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20";
             } else if (isSelected) {
-              optionClass = "border-indigo-300 bg-indigo-50";
+              optionClass = "border-indigo-300 dark:border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30";
             }
 
             return (

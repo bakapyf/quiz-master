@@ -16,7 +16,6 @@ export default function Quiz() {
   const [selectedAnswer, setSelectedAnswer] = useState("");
   const [showResult, setShowResult] = useState(false);
   const [favIds, setFavIds] = useState<Set<number>>(new Set());
-  const [touchedQuestions, setTouchedQuestions] = useState<Set<number>>(new Set());
   const [quickMode, setQuickMode] = useState(() => localStorage.getItem("quiz-quick-mode") === "1");
 
   const quiz = useQuiz(Number(id), { mode, bankId: Number(id) });
@@ -32,11 +31,6 @@ export default function Quiz() {
   useEffect(() => {
     setSelectedAnswer("");
     setShowResult(false);
-    setTouchedQuestions((prev) => {
-      const next = new Set(prev);
-      if (quiz.currentQuestion?.id) next.add(quiz.currentQuestion.id);
-      return next;
-    });
   }, [quiz.state.currentIndex]);
 
   useEffect(() => {
@@ -78,6 +72,34 @@ export default function Quiz() {
       navigate(`/banks/${id}`);
     }
   };
+
+  const getDotColor = (q: any, idx: number) => {
+    if (idx === quiz.state.currentIndex) return "bg-indigo-600 dark:bg-indigo-400";
+    const ans = quiz.state.answers.get(q.id!);
+    if (!ans) return "bg-slate-300 dark:bg-slate-600";
+    // Check if answer is correct
+    const isMulti = q.type === "multiple_choice";
+    if (isMulti) {
+      const correctSet = new Set(q.answer.replace(/[^A-H]/g, "").split("").filter(Boolean));
+      const userSet = new Set(ans.replace(/[^A-H]/g, "").split("").filter(Boolean));
+      return correctSet.size === userSet.size && [...correctSet].every((c) => userSet.has(c as string))
+        ? "bg-emerald-500" : "bg-red-500";
+    }
+    return ans.replace(/[A-H]\./, "").trim().toLowerCase() === q.answer.replace(/[A-H]\./, "").trim().toLowerCase()
+      ? "bg-emerald-500" : "bg-red-500";
+  };
+
+  const wrongCount = [...quiz.state.answers.entries()].filter(([qid, ans]) => {
+    const q = quiz.state.questions.find((qq) => qq.id === qid);
+    if (!q) return false;
+    const isMulti = q.type === "multiple_choice";
+    if (isMulti) {
+      const correctSet = new Set(q.answer.replace(/[^A-H]/g, "").split("").filter(Boolean));
+      const userSet = new Set(ans.replace(/[^A-H]/g, "").split("").filter(Boolean));
+      return !(correctSet.size === userSet.size && [...correctSet].every((c) => userSet.has(c as string)));
+    }
+    return ans.replace(/[A-H]\./, "").trim().toLowerCase() !== q.answer.replace(/[A-H]\./, "").trim().toLowerCase();
+  }).length;
 
   const isMultiChoice = quiz.currentQuestion?.type === "multiple_choice";
   const isShortAnswer = quiz.currentQuestion?.type === "short_answer";
@@ -209,10 +231,17 @@ export default function Quiz() {
           )}
         </div>
 
-        <div className="mt-4 flex justify-center gap-2 flex-wrap">
-          {quiz.state.questions.map((_, idx) => (
-            <button key={idx} onClick={() => { if (showResult) { handleNext(); } else { quiz.goToQuestion(idx); } }} className={`w-2.5 h-2.5 rounded-full transition-colors ${idx === quiz.state.currentIndex ? "bg-indigo-600 dark:bg-indigo-400" : touchedQuestions.has(quiz.state.questions[idx].id!) ? "bg-indigo-300 dark:bg-indigo-600" : "bg-slate-300 dark:bg-slate-600"}`} />
-          ))}
+        <div className="mt-4 flex items-center justify-center gap-3">
+          <div className="flex justify-center gap-2 flex-wrap">
+            {quiz.state.questions.map((_, idx) => (
+              <div key={idx} className={`w-2.5 h-2.5 rounded-full shrink-0 ${getDotColor(quiz.state.questions[idx], idx)}`} />
+            ))}
+          </div>
+          {wrongCount > 0 && (
+            <span className="text-xs text-red-500 font-medium whitespace-nowrap">
+              错 {wrongCount} 题
+            </span>
+          )}
         </div>
       </div>
 
