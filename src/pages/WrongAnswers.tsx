@@ -194,10 +194,8 @@ export default function WrongAnswers() {
                     showCheck = "missed";
                   }
                 } else {
-                  const optText = opt.replace(/^[A-H][.、]\s*/, "").replace(/[（(][√×✓✗][）)]$/, "").trim();
-                  const ansText = q.answer.trim();
-                  const isOptCorrect = optText === ansText || optText.startsWith(ansText) || ansText.startsWith(optText);
-                  if (isOptCorrect) { oc = "border-emerald-300 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20"; showCheck = "correct"; }
+                  const correctLetter = correctLetters[0];
+                  if (letter === correctLetter) { oc = "border-emerald-300 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20"; showCheck = "correct"; }
                   else if (isSelected) { oc = "border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20"; showCheck = "wrong"; }
                 }
               } else if (isSelected) {

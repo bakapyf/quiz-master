@@ -49,7 +49,23 @@ export function parsedToQuestions(
       let type: QuestionType = q.type;
 
       if (type === "true_false" && q.options.length === 0) {
-        q.options = ["正确（√）", "错误（×）"];
+        // If no options were parsed, set standard options with A/B prefix
+        q.options = [];
+      }
+
+      // Normalize true/false answer to option letter (A or B)
+      if (type === "true_false" && q.options.length > 0) {
+        const firstOptText = q.options[0].replace(/^[A-H][.、]\s*/, "").trim();
+        // If answer is √/✓ or matches first option text, answer = "A"
+        if (q.answer.match(/^[√✓]/) || q.answer.includes(firstOptText.substring(0, 2))) {
+          q.answer = "A";
+        } else {
+          q.answer = "B";
+        }
+      } else if (type === "true_false") {
+        // No options, answer by symbol
+        if (q.answer.match(/^[√✓]/)) q.answer = "A";
+        else if (q.answer.match(/^[×✗]/)) q.answer = "B";
       }
 
       if (
@@ -60,16 +76,9 @@ export function parsedToQuestions(
         type = "short_answer";
       }
 
-      if (
-        type === "true_false" &&
-        q.answer.match(/^[√✓]/)
-      ) {
-        q.answer = "正确";
-      } else if (
-        type === "true_false" &&
-        q.answer.match(/^[×✗]/)
-      ) {
-        q.answer = "错误";
+      // For true_false without options, add standard ones
+      if (type === "true_false" && q.options.length === 0) {
+        q.options = ["A. 正确（√）", "B. 错误（×）"];
       }
 
       return {
