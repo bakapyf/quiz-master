@@ -49,6 +49,10 @@ export default function Quiz() {
     if (quiz.isLastQuestion) { navigate(`/banks/${id}`); }
   };
 
+
+  const isMultiChoice = quiz.currentQuestion?.type === "multiple_choice";
+  const isShortAnswer = quiz.currentQuestion?.type === "short_answer";
+
   const handleOptionClick = (letter: string) => {
     if (isMultiChoice) {
       const next = selectedAnswer.includes(letter) ? selectedAnswer.replace(letter, "") : (selectedAnswer + letter).split("").sort().join("");
@@ -102,8 +106,19 @@ export default function Quiz() {
     return ans.replace(/[A-H]\.\s*/g, "").trim().toLowerCase() !== q.answer.replace(/[A-H]\.\s*/g, "").trim().toLowerCase();
   }).length;
 
-  const isMultiChoice = quiz.currentQuestion?.type === "multiple_choice";
-  const isShortAnswer = quiz.currentQuestion?.type === "short_answer";
+  const correctSet = new Set<number>();
+  for (const [qid, ans] of quiz.state.answers.entries()) {
+    const q = quiz.state.questions.find((qq) => qq.id === qid);
+    if (!q) continue;
+    const isMulti = q.type === "multiple_choice";
+    if (isMulti) {
+      const cs = new Set(q.answer.replace(/[^A-H]/g, "").split("").filter(Boolean));
+      const us = new Set(ans.replace(/[^A-H]/g, "").split("").filter(Boolean));
+      if (cs.size === us.size && [...cs].every((c) => us.has(c as string))) correctSet.add(qid);
+    } else {
+      if (ans.replace(/[A-H]\.\s*/g, "").trim().toLowerCase() === q.answer.replace(/[A-H]\.\s*/g, "").trim().toLowerCase()) correctSet.add(qid);
+    }
+  }
 
   const toggleFav = async (questionId?: number) => {
     if (!questionId) return;
@@ -167,10 +182,10 @@ export default function Quiz() {
                   showCheck = "missed";
                 }
               } else {
-                // Single / True-False: compare answer text with option text
-                const optText = opt.replace(/^[A-H][.、]\s*/, "").trim();
-                const ansText = q.answer.trim();
-                const isOptCorrect = optText === ansText || (ansText === "√" && optText.includes("正确")) || (ansText === "×" && optText.includes("错误"));
+                  // Single / True-False: compare answer text with option text (strip emoji/extra chars)
+                  const optText = opt.replace(/^[A-H][.、]\s*/, "").replace(/[（(][√×✓✗][）)]$/, "").trim();
+                  const ansText = q.answer.trim();
+                  const isOptCorrect = optText === ansText || optText.startsWith(ansText) || ansText.startsWith(optText);
 
                 if (isOptCorrect) {
                   optClass = "border-emerald-300 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20";
@@ -208,15 +223,22 @@ export default function Quiz() {
         )}
 
         <div className="mt-6 flex gap-3">
-          {/* Multi-choice / Short answer: show submit button */}
           {(isMultiChoice || isShortAnswer) && !showResult && (
             <button onClick={handleSubmit} disabled={!selectedAnswer} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors">
               {isMultiChoice ? "确认选择" : "提交答案"}
             </button>
           )}
-          {/* After showing result: show next */}
           {showResult && (
-            <button onClick={handleNext} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">{quiz.isLastQuestion ? "完成答题" : "下一题"}</button>
+            <div className="flex gap-3 w-full">
+              <button onClick={() => {
+                if (quiz.state.currentIndex > 0) {
+                  setSelectedAnswer("");
+                  setShowResult(false);
+                  quiz.goToQuestion(quiz.state.currentIndex - 1);
+                }
+              }} disabled={quiz.state.currentIndex === 0} className="flex-1 py-2.5 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 transition-colors">上一题</button>
+              <button onClick={handleNext} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">{quiz.isLastQuestion ? "完成答题" : "下一题"}</button>
+            </div>
           )}
         </div>
 
@@ -228,7 +250,7 @@ export default function Quiz() {
         </div>
       </div>
 
-      <QuestionNav total={quiz.state.questions.length} currentIndex={quiz.state.currentIndex} answers={quiz.state.answers} questions={quiz.state.questions} onJump={(idx) => {
+      <QuestionNav total={quiz.state.questions.length} currentIndex={quiz.state.currentIndex} answers={quiz.state.answers} questions={quiz.state.questions} correctSet={correctSet} onJump={(idx) => {
         if (showResult) { handleNext(); }
         quiz.goToQuestion(idx);
       }} />

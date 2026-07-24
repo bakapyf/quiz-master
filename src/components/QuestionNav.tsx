@@ -21,6 +21,7 @@ interface QuestionNavProps {
   currentIndex: number;
   answers: Map<number, string>;
   questions: Array<{ id?: number; type?: string }>;
+  correctSet?: Set<number>;
   onJump: (index: number) => void;
 }
 
@@ -29,6 +30,7 @@ export default function QuestionNav({
   currentIndex,
   answers,
   questions,
+  correctSet,
   onJump,
 }: QuestionNavProps) {
   const [open, setOpen] = useState(false);
@@ -93,22 +95,16 @@ export default function QuestionNav({
                       {group.indices.map((idx, gi) => {
                         const q = questions[idx];
                         const answered = answers.has(q.id!);
+                        const isCorrect = correctSet?.has(q.id!);
+                        let btnClass = "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400";
+                        if (isCorrect) btnClass = "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300";
+                        else if (answered) btnClass = "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300";
+                        if (idx === currentIndex) btnClass += " ring-2 ring-indigo-500";
                         return (
                           <button
                             key={idx}
-                            onClick={() => {
-                              onJump(idx);
-                              setOpen(false);
-                            }}
-                            className={`w-9 h-9 rounded-lg text-xs font-medium flex items-center justify-center transition-colors ${
-                              idx === currentIndex
-                                ? "ring-2 ring-indigo-500"
-                                : ""
-                            } ${
-                              answered
-                                ? "bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300"
-                                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
-                            }`}
+                            onClick={() => { onJump(idx); setOpen(false); }}
+                            className={`w-9 h-9 rounded-lg text-xs font-medium flex items-center justify-center transition-colors ${btnClass}`}
                           >
                             {gi + 1}
                           </button>
@@ -120,12 +116,9 @@ export default function QuestionNav({
               })}
 
               <div className="flex items-center gap-4 pt-2 text-xs text-slate-500 border-t border-slate-200 dark:border-slate-700">
-                <span className="flex items-center gap-1">
-                  <span className="w-3 h-3 rounded bg-indigo-100 dark:bg-indigo-900/40" /> 已答
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-3 h-3 rounded bg-slate-100 dark:bg-slate-800" /> 未答
-                </span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100 dark:bg-emerald-900/40" /> 正确</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-100 dark:bg-red-900/40" /> 错误</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-slate-100 dark:bg-slate-800" /> 未答</span>
               </div>
             </div>
           </div>
